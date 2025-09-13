@@ -1,0 +1,20 @@
+{
+  "name": "genai-learning-assistant",
+  "version": "1.0.0",
+  "description": "Chrome Extension to help beginners learn Generative AI",
+  "main": "popup.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "chrome-extension",
+    "generative-ai",
+    "learning",
+    "gemini-ai"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "eslint": "^8.0.0"
+  }
+}

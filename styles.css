@@ -134,3 +134,24 @@ select {
 .nav-btn:hover {
     background: #5a6268;
 }
+
+/* Setup Screen Styles */
+.setup-screen {
+    text-align: center;
+    padding: 20px;
+}
+
+.api-key-input {
+    width: 100%;
+    padding: 10px;
+    margin: 15px 0;
+    border: 2px solid #ddd;
+    border-radius: 6px;
+    font-size: 14px;
+}
+
+.hint {
+    color: #666;
+    font-size: 12px;
+    margin: 5px 0 15px;
+}

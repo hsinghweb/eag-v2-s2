@@ -1,8 +1,14 @@
-// Store for Gemini API key - Replace with your actual API key
-const GEMINI_API_KEY = 'YOUR_API_KEY_HERE';
+// Import setup functionality
+import { checkApiKey } from './setup.js';
 
-// Initialize proficiency level
-document.addEventListener('DOMContentLoaded', () => {
+let GEMINI_API_KEY;
+
+// Initialize extension
+document.addEventListener('DOMContentLoaded', async () => {
+    // Check for API key first
+    GEMINI_API_KEY = await checkApiKey();
+    if (!GEMINI_API_KEY) return; // Setup screen is showing
+
     chrome.storage.local.get(['proficiency'], (result) => {
         if (result.proficiency) {
             document.getElementById('proficiency').value = result.proficiency;
