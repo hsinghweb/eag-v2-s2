@@ -98,6 +98,8 @@ select {
 .error-card p {
     margin: 15px 0;
     color: #666;
+    white-space: pre-line;
+    line-height: 1.5;
 }
 
 .error-actions {
@@ -189,4 +191,44 @@ select {
     color: #666;
     font-size: 12px;
     margin: 5px 0 15px;
+}
+
+.setup-instructions {
+    text-align: left;
+    margin: 15px 0;
+    padding: 10px;
+    background: #f8f9fa;
+    border-radius: 4px;
+}
+
+.setup-instructions ol {
+    margin: 10px 0 10px 20px;
+    padding: 0;
+}
+
+.setup-instructions li {
+    margin: 5px 0;
+    color: #666;
+}
+
+.api-key-error {
+    color: #dc3545;
+    margin: 10px 0;
+    font-size: 14px;
+    min-height: 20px;
+}
+
+/* Chart Legend Styles */
+.chart-legend {
+    margin-top: 15px;
+    padding-top: 15px;
+    border-top: 1px solid #eee;
+    display: flex;
+    justify-content: space-around;
+}
+
+.chart-legend p {
+    margin: 0;
+    color: #666;
+    font-size: 14px;
 }

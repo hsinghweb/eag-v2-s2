@@ -35,7 +35,7 @@ async function callGeminiAPI(prompt) {
             throw new Error('API key not found. Please set up your API key first.');
         }
 
-        const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent', {
+        const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -65,7 +65,12 @@ async function callGeminiAPI(prompt) {
         console.error('Error calling Gemini API:', error);
         
         let errorMessage;
-        if (error.message.includes('API key')) {
+        if (error.message.includes('invalid authentication credentials')) {
+            errorMessage = 'Authentication Error: Your API key might be invalid or expired. Please ensure you:\n' +
+                         '1. Have copied the complete API key\n' +
+                         '2. Have enabled the Gemini API in your Google Cloud Console\n' +
+                         '3. Are using a valid API key from Google AI Studio';
+        } else if (error.message.includes('API key')) {
             errorMessage = 'Invalid or missing API key. Please check your API key in the extension settings.';
         } else if (error.message.includes('Invalid response format')) {
             errorMessage = 'Unexpected response from API. Please try again.';
@@ -298,15 +303,49 @@ function showProgress() {
         const scores = result.quizScores || [];
         const contentArea = document.getElementById('content');
         
-        // Create progress chart (you'll need to add Chart.js library)
         contentArea.innerHTML = `
             <div class="card">
                 <h3>Your Progress</h3>
                 <canvas id="progressChart"></canvas>
+                <div class="chart-legend">
+                    <p>Total Quizzes: ${scores.length}</p>
+                    <p>Average Score: ${(scores.reduce((acc, s) => acc + s.score, 0) / scores.length || 0).toFixed(1)}/10</p>
+                </div>
             </div>
         `;
         
-        // Add chart visualization here
+        const ctx = document.getElementById('progressChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: scores.map((_, i) => `Quiz ${i + 1}`),
+                datasets: [{
+                    label: 'Quiz Scores',
+                    data: scores.map(s => s.score),
+                    borderColor: '#007bff',
+                    backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                    tension: 0.1,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: 10,
+                        ticks: {
+                            stepSize: 1
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                }
+            }
+        });
     });
 }
 
