@@ -31,6 +31,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 // Helper function to call Gemini API
 async function callGeminiAPI(prompt) {
     try {
+        if (!GEMINI_API_KEY) {
+            throw new Error('API key not found. Please set up your API key first.');
+        }
+
         const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent', {
             method: 'POST',
             headers: {
@@ -46,15 +50,45 @@ async function callGeminiAPI(prompt) {
             })
         });
 
+        const data = await response.json();
+
         if (!response.ok) {
-            throw new Error('API request failed');
+            throw new Error(data.error?.message || 'API request failed');
         }
 
-        const data = await response.json();
+        if (!data.candidates || !data.candidates[0]?.content?.parts?.[0]?.text) {
+            throw new Error('Invalid response format from API');
+        }
+
         return data.candidates[0].content.parts[0].text;
     } catch (error) {
         console.error('Error calling Gemini API:', error);
-        return 'Error: Could not get response from AI';
+        
+        let errorMessage;
+        if (error.message.includes('API key')) {
+            errorMessage = 'Invalid or missing API key. Please check your API key in the extension settings.';
+        } else if (error.message.includes('Invalid response format')) {
+            errorMessage = 'Unexpected response from API. Please try again.';
+        } else if (!navigator.onLine) {
+            errorMessage = 'No internet connection. Please check your network and try again.';
+        } else {
+            errorMessage = `Error: ${error.message || 'Something went wrong. Please try again.'}`;
+        }
+
+        const contentArea = document.getElementById('content');
+        contentArea.innerHTML = `
+            <div class="card error-card">
+                <h3>⚠️ Error</h3>
+                <p>${errorMessage}</p>
+                <div class="error-actions">
+                    <button onclick="location.reload()" class="option-btn">Try Again</button>
+                    ${error.message.includes('API key') ? 
+                        '<button onclick="resetApiKey()" class="option-btn">Reset API Key</button>' : 
+                        ''}
+                </div>
+            </div>
+        `;
+        return null;
     }
 }
 
@@ -274,4 +308,10 @@ function showProgress() {
         
         // Add chart visualization here
     });
+}
+
+async function resetApiKey() {
+    await chrome.storage.local.remove('geminiApiKey');
+    GEMINI_API_KEY = null;
+    location.reload();
 }
