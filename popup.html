@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>GenAI Learning Assistant</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>GenAI Learning Assistant</h1>
+        
+        <div class="proficiency-selector">
+            <label for="proficiency">Select Your Level:</label>
+            <select id="proficiency">
+                <option value="beginner">Beginner</option>
+                <option value="intermediate">Intermediate</option>
+                <option value="master">Master</option>
+            </select>
+        </div>
+
+        <div class="options">
+            <button id="coursePlan" class="option-btn">Course Plan</button>
+            <button id="buzzwords" class="option-btn">AI Buzzwords</button>
+            <button id="quiz" class="option-btn">Take Quiz</button>
+        </div>
+
+        <div id="content" class="content-area">
+            <!-- Dynamic content will be loaded here -->
+        </div>
+    </div>
+    <script src="popup.js"></script>
+</body>
+</html>
