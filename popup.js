@@ -39,7 +39,7 @@ async function callGeminiAPI(prompt) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${GEMINI_API_KEY}`
+                'X-goog-api-key': GEMINI_API_KEY
             },
             body: JSON.stringify({
                 contents: [{

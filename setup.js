@@ -48,7 +48,7 @@ function showApiKeySetup() {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${apiKey}`
+                        'X-goog-api-key': apiKey
                     },
                     body: JSON.stringify({
                         contents: [{
