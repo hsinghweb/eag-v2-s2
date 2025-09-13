@@ -119,7 +119,6 @@ async function showBuzzwords() {
 
     const prompt = 'Generate 10 AI buzzwords with their simple definitions in JSON format.';
     const response = await callGeminiAPI(prompt);
-    
     let parsedBuzzwords;
     try {
         parsedBuzzwords = JSON.parse(response);
@@ -137,25 +136,33 @@ async function showBuzzwords() {
         contentArea.innerHTML = '<div class="card">Error loading buzzwords</div>';
         return;
     }
-    buzzwords = parsedBuzzwords;
+    // Normalize buzzword objects to always have buzzword and definition keys
+    buzzwords = parsedBuzzwords.map(item => {
+        if (item.term && item.definition) {
+            return { buzzword: item.term, definition: item.definition };
+        }
+        return item;
+    });
+    currentBuzzwordIndex = 0;
     showCurrentBuzzword();
 }
 
 function showCurrentBuzzword() {
     const contentArea = document.getElementById('content');
     const buzzword = buzzwords[currentBuzzwordIndex];
-
     contentArea.innerHTML = `
         <div class="card">
-            <h3>${buzzword.term}</h3>
+            <h3>${buzzword.buzzword}</h3>
             <p>${buzzword.definition}</p>
             <div class="nav-buttons">
-                <button onclick="previousBuzzword()" class="nav-btn" ${currentBuzzwordIndex === 0 ? 'disabled' : ''}>Previous</button>
-                <span>${currentBuzzwordIndex + 1}/10</span>
-                <button onclick="nextBuzzword()" class="nav-btn" ${currentBuzzwordIndex === 9 ? 'disabled' : ''}>Next</button>
+                <button id="prevBuzzword" class="nav-btn" ${currentBuzzwordIndex === 0 ? 'disabled' : ''}>Previous</button>
+                <span>${currentBuzzwordIndex + 1}/${buzzwords.length}</span>
+                <button id="nextBuzzword" class="nav-btn" ${currentBuzzwordIndex === buzzwords.length - 1 ? 'disabled' : ''}>Next</button>
             </div>
         </div>
     `;
+    document.getElementById('prevBuzzword').onclick = previousBuzzword;
+    document.getElementById('nextBuzzword').onclick = nextBuzzword;
 }
 
 function previousBuzzword() {
@@ -186,14 +193,46 @@ async function startQuiz() {
     const prompt = `Generate 10 multiple-choice questions about Generative AI for ${proficiency} level. Format as JSON array with questions, options (A-D), and correct answer.`;
 
     const response = await callGeminiAPI(prompt);
+    let parsedQuestions;
     try {
-        quizQuestions = JSON.parse(response);
-        currentQuestionIndex = 0;
-        startTimer();
-        showCurrentQuestion();
+        parsedQuestions = JSON.parse(response);
     } catch (error) {
-        contentArea.innerHTML = '<div class="card">Error loading quiz</div>';
+        // Robust fallback: handle various line endings and flexible 'Correct Answer' formats
+        parsedQuestions = response.split(/\n\n|\r\n\r\n/).map(block => {
+            const lines = block.split(/\n|\r\n/).map(l => l.trim()).filter(Boolean);
+            if (lines.length >= 3) {
+                const questionLine = lines[0];
+                const options = {};
+                let correct = '';
+                lines.slice(1).forEach(line => {
+                    const optMatch = line.match(/^([A-D])\.\s*(.*)$/);
+                    if (optMatch) {
+                        options[optMatch[1]] = optMatch[2];
+                    } else if (line.toLowerCase().includes('correct answer')) {
+                        // Accept both 'Correct Answer: A' and 'Correct answer is A' formats
+                        const ansMatch = line.match(/correct answer[:\s]*([A-D])/i);
+                        if (ansMatch) correct = ansMatch[1];
+                    }
+                });
+                if (Object.keys(options).length >= 2 && correct) {
+                    return {
+                        question: questionLine,
+                        options,
+                        correct
+                    };
+                }
+            }
+            return null;
+        }).filter(Boolean);
     }
+    if (!parsedQuestions || parsedQuestions.length === 0) {
+        contentArea.innerHTML = '<div class="card">Error loading quiz</div>';
+        return;
+    }
+    quizQuestions = parsedQuestions;
+    currentQuestionIndex = 0;
+    startTimer();
+    showCurrentQuestion();
 }
 
 function startTimer() {
