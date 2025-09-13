@@ -193,9 +193,30 @@ async function startQuiz() {
     const prompt = `Generate 10 multiple-choice questions about Generative AI for ${proficiency} level. Format as JSON array with questions, options (A-D), and correct answer.`;
 
     const response = await callGeminiAPI(prompt);
+
+    // Exit if the API call failed and has already displayed an error message
+    if (!response) {
+        return;
+    }
+
     let parsedQuestions;
     try {
-        parsedQuestions = JSON.parse(response);
+        // More robust parsing: find the start and end of the JSON array/object
+        const startIndex = response.indexOf('[');
+        const endIndex = response.lastIndexOf(']');
+
+        if (startIndex === -1 || endIndex === -1) {
+            throw new Error('Could not find JSON array in the response.');
+        }
+
+        const jsonString = response.substring(startIndex, endIndex + 1);
+        const questions = JSON.parse(jsonString);
+
+        // Normalize the API response to match the expected data structure
+        parsedQuestions = questions.map(q => ({
+            ...q,
+            correct: q.correct_answer || q.answer // Handle both 'correct_answer' and 'answer' keys
+        }));
     } catch (error) {
         // Robust fallback: handle various line endings and flexible 'Correct Answer' formats
         parsedQuestions = response.split(/\n\n|\r\n\r\n/).map(block => {
@@ -226,7 +247,12 @@ async function startQuiz() {
         }).filter(Boolean);
     }
     if (!parsedQuestions || parsedQuestions.length === 0) {
-        contentArea.innerHTML = '<div class="card">Error loading quiz</div>';
+        contentArea.innerHTML = `
+            <div class="card">
+                <p>Error loading quiz. The API response could not be parsed.</p>
+                <strong>Raw API Response:</strong>
+                <pre style="white-space: pre-wrap; word-wrap: break-word; max-height: 200px; overflow-y: auto; background: #eee; padding: 10px; border-radius: 5px; color: #333;">${response ? response.replace(/</g, '&lt;').replace(/>/g, '&gt;') : 'No response received from API.'}</pre>
+            </div>`;
         return;
     }
     quizQuestions = parsedQuestions;
