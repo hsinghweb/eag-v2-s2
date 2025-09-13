@@ -479,9 +479,13 @@ function submitQuiz() {
         <div class="card">
             <h2>Quiz Complete!</h2>
             <p class="score">Your Score: ${score}/10</p>
-            <button onclick="showProgress()" class="option-btn">View Progress</button>
+            <button id="viewProgressBtn" class="option-btn">View Progress</button>
         </div>
     `;
+
+    // Attach handler for View Progress (CSP-safe)
+    const viewBtn = contentArea.querySelector('#viewProgressBtn');
+    if (viewBtn) viewBtn.addEventListener('click', showProgress);
 
     // Show confetti for high scores
     if (score >= 8) {
