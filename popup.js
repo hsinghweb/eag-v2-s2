@@ -384,12 +384,13 @@ function showCurrentQuestion() {
         return;
     }
 
+    const totalQuestions = quizQuestions.length || 10;
     contentArea.innerHTML = `
         <div class="quiz-container">
             <div class="quiz-timer">10:00</div>
             <div class="timer-bar"><div class="timer-fill" style="width:100%"></div></div>
             <div class="card">
-                <h3>Question ${currentQuestionIndex + 1}/10</h3>
+                <h3>Question ${currentQuestionIndex + 1}/${totalQuestions}</h3>
                 <p>${question.question}</p>
                 <div class="quiz-options">
                     ${Object.entries(question.options).map(([key, value]) => `
@@ -399,18 +400,36 @@ function showCurrentQuestion() {
                     `).join('')}
                 </div>
                 <div class="nav-buttons">
-                    ${currentQuestionIndex > 0 ? '<button onclick="previousQuestion()" class="nav-btn">Previous</button>' : ''}
-                    ${currentQuestionIndex < 9 ? '<button onclick="nextQuestion()" class="nav-btn">Next</button>' : ''}
-                    ${currentQuestionIndex === 9 ? '<button onclick="submitQuiz()" class="nav-btn">Submit</button>' : ''}
+                    ${currentQuestionIndex > 0 ? '<button id="prevQuestionBtn" class="nav-btn">Previous</button>' : ''}
+                    ${currentQuestionIndex < totalQuestions - 1 ? '<button id="nextQuestionBtn" class="nav-btn">Next</button>' : ''}
+                    ${currentQuestionIndex === totalQuestions - 1 ? '<button id="submitQuizBtn" class="nav-btn">Submit</button>' : ''}
                 </div>
             </div>
         </div>
     `;
 
     // Add click handlers for options
-    document.querySelectorAll('.quiz-option').forEach(option => {
+    const optionEls = document.querySelectorAll('.quiz-option');
+    optionEls.forEach(option => {
         option.addEventListener('click', () => selectOption(option));
     });
+    // Re-apply selected state if user had previously selected an answer
+    const selected = quizQuestions[currentQuestionIndex].selectedAnswer;
+    if (selected) {
+        const selectedEl = Array.from(optionEls).find(el => el.dataset.option === selected);
+        if (selectedEl) selectedEl.classList.add('selected');
+    }
+
+    // Wire up navigation buttons without inline handlers (CSP-safe)
+    const prevBtn = document.getElementById('prevQuestionBtn');
+    if (prevBtn) prevBtn.addEventListener('click', previousQuestion);
+    const nextBtn = document.getElementById('nextQuestionBtn');
+    if (nextBtn) nextBtn.addEventListener('click', nextQuestion);
+    const submitBtn = document.getElementById('submitQuizBtn');
+    if (submitBtn) submitBtn.addEventListener('click', submitQuiz);
+
+    // Ensure timer text and bar reflect current time on each render
+    updateTimer();
 }
 
 function selectOption(optionElement) {

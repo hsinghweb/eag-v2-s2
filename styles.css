@@ -189,11 +189,19 @@ select {
     background: #e7f1ff;
 }
 
+.quiz-option {
+    position: relative;
+}
+
 .quiz-option.selected::after {
-    content: '✓';
-    float: right;
+    content: "\2713";
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
     color: #007bff;
-    font-weight: 600;
+    font-weight: 700;
+    font-family: 'Segoe UI Symbol', 'Segoe UI', system-ui, -apple-system, sans-serif;
 }
 
 /* Navigation Buttons */
