@@ -35,7 +35,7 @@ async function callGeminiAPI(prompt) {
             throw new Error('API key not found. Please set up your API key first.');
         }
 
-        const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent', {
+        const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -120,12 +120,25 @@ async function showBuzzwords() {
     const prompt = 'Generate 10 AI buzzwords with their simple definitions in JSON format.';
     const response = await callGeminiAPI(prompt);
     
+    let parsedBuzzwords;
     try {
-        buzzwords = JSON.parse(response);
-        showCurrentBuzzword();
+        parsedBuzzwords = JSON.parse(response);
     } catch (error) {
-        contentArea.innerHTML = '<div class="card">Error loading buzzwords</div>';
+        // Try to extract buzzwords from plain text
+        parsedBuzzwords = response.split('\n').map(line => {
+            const parts = line.split(':');
+            if (parts.length === 2) {
+                return { buzzword: parts[0].trim(), definition: parts[1].trim() };
+            }
+            return null;
+        }).filter(Boolean);
     }
+    if (!parsedBuzzwords || parsedBuzzwords.length === 0) {
+        contentArea.innerHTML = '<div class="card">Error loading buzzwords</div>';
+        return;
+    }
+    buzzwords = parsedBuzzwords;
+    showCurrentBuzzword();
 }
 
 function showCurrentBuzzword() {
