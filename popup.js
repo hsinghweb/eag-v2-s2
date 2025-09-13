@@ -3,23 +3,75 @@ import { checkApiKey } from './setup.js';
 
 let GEMINI_API_KEY;
 
+// Promise-based chrome.storage helpers
+const storage = {
+    get(keys) {
+        return new Promise((resolve, reject) => {
+            try {
+                chrome.storage.local.get(keys, (result) => {
+                    const err = chrome.runtime.lastError;
+                    if (err) return reject(err);
+                    resolve(result);
+                });
+            } catch (e) { reject(e); }
+        });
+    },
+    set(items) {
+        return new Promise((resolve, reject) => {
+            try {
+                chrome.storage.local.set(items, () => {
+                    const err = chrome.runtime.lastError;
+                    if (err) return reject(err);
+                    resolve();
+                });
+            } catch (e) { reject(e); }
+        });
+    },
+    remove(keys) {
+        return new Promise((resolve, reject) => {
+            try {
+                chrome.storage.local.remove(keys, () => {
+                    const err = chrome.runtime.lastError;
+                    if (err) return reject(err);
+                    resolve();
+                });
+            } catch (e) { reject(e); }
+        });
+    }
+};
+
+// Reusable loading renderer
+function renderLoading(message = 'Loading...') {
+    const contentArea = document.getElementById('content');
+    if (!contentArea) return;
+    contentArea.innerHTML = `
+        <div class="card loading">
+            <div class="spinner"></div>
+            <div>${message}</div>
+        </div>
+    `;
+}
+
 // Initialize extension
 document.addEventListener('DOMContentLoaded', async () => {
     // Check for API key first
     GEMINI_API_KEY = await checkApiKey();
     if (!GEMINI_API_KEY) return; // Setup screen is showing
 
-    chrome.storage.local.get(['proficiency'], (result) => {
+    try {
+        const result = await storage.get(['proficiency']);
         if (result.proficiency) {
             document.getElementById('proficiency').value = result.proficiency;
         } else {
-            chrome.storage.local.set({ proficiency: 'beginner' });
+            await storage.set({ proficiency: 'beginner' });
         }
-    });
+    } catch (e) {
+        console.warn('Storage get/set error for proficiency', e);
+    }
 
     // Proficiency level change listener
-    document.getElementById('proficiency').addEventListener('change', (e) => {
-        chrome.storage.local.set({ proficiency: e.target.value });
+    document.getElementById('proficiency').addEventListener('change', async (e) => {
+        try { await storage.set({ proficiency: e.target.value }); } catch {}
     });
 
     // Button click listeners
@@ -30,69 +82,94 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // Helper function to call Gemini API
 async function callGeminiAPI(prompt) {
+    const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+    const maxAttempts = 3;
+    const baseDelayMs = 800;
     try {
         if (!GEMINI_API_KEY) {
             throw new Error('API key not found. Please set up your API key first.');
         }
 
-        const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-goog-api-key': GEMINI_API_KEY
-            },
-            body: JSON.stringify({
-                contents: [{
-                    parts: [{
-                        text: prompt
-                    }]
-                }]
-            })
-        });
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-goog-api-key': GEMINI_API_KEY
+                    },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: prompt }] }]
+                    })
+                });
 
-        const data = await response.json();
+                const status = response.status;
+                let data;
+                try { data = await response.json(); } catch { data = null; }
 
-        if (!response.ok) {
-            throw new Error(data.error?.message || 'API request failed');
+                if (!response.ok) {
+                    // Retry on transient errors
+                    if (status === 503 || status === 504) {
+                        if (attempt < maxAttempts) {
+                            await new Promise(r => setTimeout(r, baseDelayMs * attempt));
+                            continue;
+                        }
+                        const msg = (data && data.error?.message) || 'Service unavailable. Please try again later.';
+                        throw new Error(`Service Unavailable (HTTP ${status}): ${msg}`);
+                    }
+                    throw new Error((data && data.error?.message) || `API request failed (HTTP ${status})`);
+                }
+
+                if (!data || !data.candidates || !data.candidates[0]?.content?.parts?.[0]?.text) {
+                    throw new Error('Invalid response format from API');
+                }
+                return data.candidates[0].content.parts[0].text;
+            } catch (err) {
+                if (attempt === maxAttempts) throw err;
+                // If network-related error, backoff and retry
+                if (String(err?.message || '').includes('Failed to fetch')) {
+                    await new Promise(r => setTimeout(r, baseDelayMs * attempt));
+                    continue;
+                }
+                // For other errors, do not retry unless 503/504 handled above
+                throw err;
+            }
         }
-
-        if (!data.candidates || !data.candidates[0]?.content?.parts?.[0]?.text) {
-            throw new Error('Invalid response format from API');
-        }
-
-        return data.candidates[0].content.parts[0].text;
     } catch (error) {
         console.error('Error calling Gemini API:', error);
         
         let errorMessage;
-        if (error.message.includes('invalid authentication credentials')) {
+        const msg = String(error.message || '');
+        if (msg.includes('invalid authentication credentials')) {
             errorMessage = 'Authentication Error: Your API key might be invalid or expired. Please ensure you:\n' +
                          '1. Have copied the complete API key\n' +
                          '2. Have enabled the Gemini API in your Google Cloud Console\n' +
                          '3. Are using a valid API key from Google AI Studio';
-        } else if (error.message.includes('API key')) {
+        } else if (msg.includes('Service Unavailable') || msg.includes('HTTP 503') || msg.includes('HTTP 504')) {
+            errorMessage = 'The model is currently unreachable (service unavailable or timeout). Please try again in a minute.';
+        } else if (msg.includes('API key')) {
             errorMessage = 'Invalid or missing API key. Please check your API key in the extension settings.';
-        } else if (error.message.includes('Invalid response format')) {
+        } else if (msg.includes('Invalid response format')) {
             errorMessage = 'Unexpected response from API. Please try again.';
         } else if (!navigator.onLine) {
             errorMessage = 'No internet connection. Please check your network and try again.';
         } else {
-            errorMessage = `Error: ${error.message || 'Something went wrong. Please try again.'}`;
+            errorMessage = `Error: ${msg || 'Something went wrong. Please try again.'}`;
         }
 
         const contentArea = document.getElementById('content');
-        contentArea.innerHTML = `
-            <div class="card error-card">
-                <h3>⚠️ Error</h3>
-                <p>${errorMessage}</p>
-                <div class="error-actions">
-                    <button onclick="location.reload()" class="option-btn">Try Again</button>
-                    ${error.message.includes('API key') ? 
-                        '<button onclick="resetApiKey()" class="option-btn">Reset API Key</button>' : 
-                        ''}
+        if (contentArea) {
+            contentArea.innerHTML = `
+                <div class="card error-card">
+                    <h3>⚠️ Error</h3>
+                    <p>${errorMessage}</p>
+                    <div class="error-actions">
+                        <button onclick="location.reload()" class="option-btn">Try Again</button>
+                        ${msg.includes('API key') ? '<button onclick="resetApiKey()" class="option-btn">Reset API Key</button>' : ''}
+                    </div>
                 </div>
-            </div>
-        `;
+            `;
+        }
         return null;
     }
 }
@@ -100,13 +177,17 @@ async function callGeminiAPI(prompt) {
 // Course Plan Generation
 async function generateCoursePlan() {
     const contentArea = document.getElementById('content');
-    contentArea.innerHTML = '<div class="card">Loading course plan...</div>';
+    renderLoading('Generating course plan...');
 
     const proficiency = document.getElementById('proficiency').value;
     const prompt = `Generate a detailed step-by-step learning roadmap for ${proficiency} level in Generative AI. Include what to study, practice exercises, and estimated timeline.`;
 
     const response = await callGeminiAPI(prompt);
-    contentArea.innerHTML = `<div class="card">${response.replace(/\n/g, '<br>')}</div>`;
+    contentArea.innerHTML = `
+        <div class="card">
+            <div class="course-content">${response.replace(/\n/g, '<br>')}</div>
+        </div>
+    `;
 }
 
 // Buzzwords Feature
@@ -115,7 +196,7 @@ let buzzwords = [];
 
 async function showBuzzwords() {
     const contentArea = document.getElementById('content');
-    contentArea.innerHTML = '<div class="card">Loading buzzwords...</div>';
+    renderLoading('Loading buzzwords...');
 
     const prompt = 'Generate 10 AI buzzwords with their simple definitions in JSON format.';
     const response = await callGeminiAPI(prompt);
@@ -152,8 +233,8 @@ function showCurrentBuzzword() {
     const buzzword = buzzwords[currentBuzzwordIndex];
     contentArea.innerHTML = `
         <div class="card">
-            <h3>${buzzword.buzzword}</h3>
-            <p>${buzzword.definition}</p>
+            <h3 class="buzzword-title">${buzzword.buzzword}</h3>
+            <p class="buzzword-definition">${buzzword.definition}</p>
             <div class="nav-buttons">
                 <button id="prevBuzzword" class="nav-btn" ${currentBuzzwordIndex === 0 ? 'disabled' : ''}>Previous</button>
                 <span>${currentBuzzwordIndex + 1}/${buzzwords.length}</span>
@@ -187,7 +268,7 @@ let timerInterval;
 
 async function startQuiz() {
     const contentArea = document.getElementById('content');
-    contentArea.innerHTML = '<div class="card">Loading quiz...</div>';
+    renderLoading('Loading quiz...');
 
     const proficiency = document.getElementById('proficiency').value;
     const prompt = `Generate 10 multiple-choice questions about Generative AI for ${proficiency} level. Format as JSON array with questions, options (A-D), and correct answer.`;
@@ -255,6 +336,7 @@ async function startQuiz() {
             </div>`;
         return;
     }
+    console.log('Successfully parsed questions:', parsedQuestions);
     quizQuestions = parsedQuestions;
     currentQuestionIndex = 0;
     startTimer();
@@ -282,15 +364,30 @@ function updateTimer() {
     if (timerElement) {
         timerElement.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
     }
+    const total = 600; // seconds
+    const pct = Math.max(0, Math.min(100, (timeLeft / total) * 100));
+    const fill = document.querySelector('.timer-fill');
+    if (fill) {
+        fill.style.width = pct + '%';
+    }
 }
 
 function showCurrentQuestion() {
+    console.log('Showing question', currentQuestionIndex, quizQuestions[currentQuestionIndex]);
     const question = quizQuestions[currentQuestionIndex];
     const contentArea = document.getElementById('content');
+
+    // Defensive check to prevent rendering errors from malformed data
+    if (!question || typeof question.options !== 'object' || question.options === null) {
+        console.error('Invalid question data:', question);
+        contentArea.innerHTML = `<div class="card">Error: Invalid question format.</div>`;
+        return;
+    }
 
     contentArea.innerHTML = `
         <div class="quiz-container">
             <div class="quiz-timer">10:00</div>
+            <div class="timer-bar"><div class="timer-fill" style="width:100%"></div></div>
             <div class="card">
                 <h3>Question ${currentQuestionIndex + 1}/10</h3>
                 <p>${question.question}</p>
@@ -342,16 +439,21 @@ function submitQuiz() {
     const score = quizQuestions.filter(q => q.selectedAnswer === q.correct).length;
     const contentArea = document.getElementById('content');
     
-    // Save score in storage
-    chrome.storage.local.get(['quizScores'], (result) => {
-        const scores = result.quizScores || [];
-        scores.push({
-            date: new Date().toISOString(),
-            score: score,
-            proficiency: document.getElementById('proficiency').value
-        });
-        chrome.storage.local.set({ quizScores: scores });
-    });
+    // Save score in storage (promise-based)
+    (async () => {
+        try {
+            const result = await storage.get(['quizScores']);
+            const scores = result.quizScores || [];
+            scores.push({
+                date: new Date().toISOString(),
+                score: score,
+                proficiency: document.getElementById('proficiency').value
+            });
+            await storage.set({ quizScores: scores });
+        } catch (e) {
+            console.warn('Failed to persist quiz score', e);
+        }
+    })();
 
     // Show results with animation
     contentArea.innerHTML = `
@@ -369,15 +471,45 @@ function submitQuiz() {
 }
 
 function showConfetti() {
-    // Add confetti animation
-    const confetti = document.createElement('div');
-    confetti.className = 'confetti';
-    document.body.appendChild(confetti);
-    setTimeout(() => confetti.remove(), 3000);
+    const container = document.createElement('div');
+    container.className = 'confetti';
+    document.body.appendChild(container);
+
+    const colors = ['#ff4757', '#ffa502', '#2ed573', '#1e90ff', '#3742fa', '#e84393'];
+    const pieces = 100;
+    const vw = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
+
+    for (let i = 0; i < pieces; i++) {
+        const piece = document.createElement('div');
+        piece.className = 'confetti-piece';
+        piece.style.left = Math.random() * vw + 'px';
+        piece.style.top = (-Math.random() * 100) + 'px';
+        piece.style.background = colors[Math.floor(Math.random() * colors.length)];
+        piece.style.transform = `rotate(${Math.random() * 360}deg)`;
+        piece.style.animationDelay = (Math.random() * 0.8) + 's';
+        container.appendChild(piece);
+    }
+
+    setTimeout(() => container.remove(), 3200);
 }
 
+// Expose functions used by inline onclick in module context
+// This ensures buttons like Previous/Next/Submit work when using type="module"
+// without refactoring markup.
+// eslint-disable-next-line no-undef
+window.previousQuestion = previousQuestion;
+// eslint-disable-next-line no-undef
+window.nextQuestion = nextQuestion;
+// eslint-disable-next-line no-undef
+window.submitQuiz = submitQuiz;
+// eslint-disable-next-line no-undef
+window.showProgress = showProgress;
+// eslint-disable-next-line no-undef
+window.resetApiKey = resetApiKey;
+
 function showProgress() {
-    chrome.storage.local.get(['quizScores'], (result) => {
+    (async () => {
+        const result = await storage.get(['quizScores']);
         const scores = result.quizScores || [];
         const contentArea = document.getElementById('content');
         
@@ -424,11 +556,11 @@ function showProgress() {
                 }
             }
         });
-    });
+    })();
 }
 
 async function resetApiKey() {
-    await chrome.storage.local.remove('geminiApiKey');
+    try { await storage.remove('geminiApiKey'); } catch {}
     GEMINI_API_KEY = null;
     location.reload();
 }
