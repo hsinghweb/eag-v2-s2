@@ -40,6 +40,49 @@ const storage = {
     }
 };
 
+// Ensure options are exactly A-D and correct is a single letter among them
+function normalizeQuestion(raw) {
+    const labels = ['A','B','C','D'];
+    const question = String(raw.question || raw.prompt || '').trim();
+
+    // Build options map with exactly A-D
+    let optionsObj = {};
+    if (raw.options && typeof raw.options === 'object' && !Array.isArray(raw.options)) {
+        const entries = Object.entries(raw.options).map(([k, v]) => [String(k).trim().toUpperCase(), String(v).trim()]);
+        // If keys are A-D already, preserve order A-D
+        if (labels.every(L => entries.some(([k]) => k === L))) {
+            labels.forEach(L => { optionsObj[L] = entries.find(([k]) => k === L)?.[1] || ''; });
+        } else {
+            // Otherwise, take values in encountered order and assign to A-D
+            const values = entries.map(([, v]) => v).filter(Boolean).slice(0, 4);
+            labels.forEach((L, i) => { optionsObj[L] = values[i] || ''; });
+        }
+    } else if (Array.isArray(raw.options)) {
+        const values = raw.options.map(v => String(v).trim()).filter(Boolean).slice(0, 4);
+        labels.forEach((L, i) => { optionsObj[L] = values[i] || ''; });
+    } else {
+        // Try properties A, B, C, D on the object
+        labels.forEach(L => { if (raw[L]) optionsObj[L] = String(raw[L]).trim(); });
+        if (Object.keys(optionsObj).length !== 4) {
+            // Not enough info; best-effort fallback to empty strings
+            labels.forEach(L => { if (!optionsObj[L]) optionsObj[L] = ''; });
+        }
+    }
+
+    // Determine correct letter
+    let correct = String(raw.correct || raw.correct_answer || raw.answer || '').trim();
+    if (/^[A-D]$/i.test(correct)) {
+        correct = correct.toUpperCase();
+    } else {
+        // If 'correct' matches an option text, map it to its label
+        const found = Object.entries(optionsObj).find(([, v]) => v && v.toLowerCase() === correct.toLowerCase());
+        correct = found ? found[0] : 'A';
+    }
+
+    // Return normalized question
+    return { question, options: optionsObj, correct };
+}
+
 // Reusable loading renderer
 function renderLoading(message = 'Loading...') {
     const contentArea = document.getElementById('content');
@@ -155,7 +198,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // Helper function to call Gemini API
 async function callGeminiAPI(prompt) {
-    const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+    const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent';
     const maxAttempts = 3;
     const baseDelayMs = 800;
     try {
@@ -415,7 +458,11 @@ async function startQuiz() {
     renderLoading('Loading quiz...');
 
     const proficiency = document.getElementById('proficiency').value;
-    const prompt = `Generate 10 multiple-choice questions about Generative AI for ${proficiency} level. Format as JSON array with questions, options (A-D), and correct answer.`;
+    const prompt = `Generate 10 multiple-choice questions about Generative AI for ${proficiency} level.
+Return a JSON array where each item has:
+- question: string
+- options: exactly four options labeled A, B, C, and D (letters only)
+- correct: a single letter among A, B, C, D (only one correct option)`;
 
     const response = await callGeminiAPI(prompt);
 
@@ -427,21 +474,22 @@ async function startQuiz() {
     let parsedQuestions;
     try {
         // More robust parsing: find the start and end of the JSON array/object
-        const startIndex = response.indexOf('[');
-        const endIndex = response.lastIndexOf(']');
+        // Strip Markdown code fences if present
+        let cleaned = response;
+        const fence = cleaned.match(/```[a-zA-Z]*\s*([\s\S]*?)```/);
+        if (fence && fence[1]) cleaned = fence[1];
+        const startIndex = cleaned.indexOf('[');
+        const endIndex = cleaned.lastIndexOf(']');
 
         if (startIndex === -1 || endIndex === -1) {
             throw new Error('Could not find JSON array in the response.');
         }
 
-        const jsonString = response.substring(startIndex, endIndex + 1);
+        const jsonString = cleaned.substring(startIndex, endIndex + 1);
         const questions = JSON.parse(jsonString);
 
-        // Normalize the API response to match the expected data structure
-        parsedQuestions = questions.map(q => ({
-            ...q,
-            correct: q.correct_answer || q.answer // Handle both 'correct_answer' and 'answer' keys
-        }));
+        // Normalize structure and enforce A-D with single correct
+        parsedQuestions = questions.map(q => normalizeQuestion(q));
     } catch (error) {
         // Robust fallback: handle various line endings and flexible 'Correct Answer' formats
         parsedQuestions = response.split(/\n\n|\r\n\r\n/).map(block => {
@@ -461,16 +509,14 @@ async function startQuiz() {
                     }
                 });
                 if (Object.keys(options).length >= 2 && correct) {
-                    return {
-                        question: questionLine,
-                        options,
-                        correct
-                    };
+                    return normalizeQuestion({ question: questionLine, options, correct });
                 }
             }
             return null;
         }).filter(Boolean);
     }
+    // Final validation: keep only well-formed questions with A-D and one correct
+    parsedQuestions = (parsedQuestions || []).filter(q => q && q.question && q.options && ['A','B','C','D'].every(k => typeof q.options[k] === 'string' && q.options[k].trim()) && /^[A-D]$/.test(q.correct));
     if (!parsedQuestions || parsedQuestions.length === 0) {
         contentArea.innerHTML = `
             <div class="card">
