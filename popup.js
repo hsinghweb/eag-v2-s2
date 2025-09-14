@@ -52,6 +52,79 @@ function renderLoading(message = 'Loading...') {
     `;
 }
 
+// Minimal Markdown -> HTML renderer for readability of LLM responses
+function renderMarkdown(mdText) {
+    if (!mdText) return '';
+    // Normalize line endings
+    let text = String(mdText).replace(/\r\n/g, '\n');
+
+    // Extract fenced code blocks first
+    const codeBlocks = [];
+    text = text.replace(/```([\s\S]*?)```/g, (_, code) => {
+        const idx = codeBlocks.push(code) - 1;
+        return `[[CODE_BLOCK_${idx}]]`;
+    });
+
+    // Escape HTML
+    text = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+    // Headings
+    text = text.replace(/^###\s+(.+)$/gm, '<h3>$1<\/h3>')
+               .replace(/^##\s+(.+)$/gm, '<h2>$1<\/h2>')
+               .replace(/^#\s+(.+)$/gm, '<h1>$1<\/h1>');
+
+    // Bold and italics (basic)
+    text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1<\/strong>');
+    text = text.replace(/(^|\s)_(.+?)_(?=\s|$)/g, '$1<em>$2<\/em>');
+    text = text.replace(/(^|\s)\*(.+?)\*(?=\s|$)/g, '$1<em>$2<\/em>');
+
+    // Inline code
+    text = text.replace(/`([^`]+)`/g, '<code>$1<\/code>');
+
+    // Lists: build <ul> and <ol>
+    const lines = text.split('\n');
+    const out = [];
+    let inUL = false, inOL = false;
+    const flush = () => {
+        if (inUL) { out.push('</ul>'); inUL = false; }
+        if (inOL) { out.push('</ol>'); inOL = false; }
+    };
+    for (let line of lines) {
+        const ulMatch = /^\s*[-*]\s+(.+)$/.exec(line);
+        const olMatch = /^\s*\d+\.\s+(.+)$/.exec(line);
+        if (ulMatch) {
+            if (inOL) { out.push('</ol>'); inOL = false; }
+            if (!inUL) { out.push('<ul>'); inUL = true; }
+            out.push(`<li>${ulMatch[1]}</li>`);
+            continue;
+        }
+        if (olMatch) {
+            if (inUL) { out.push('</ul>'); inUL = false; }
+            if (!inOL) { out.push('<ol>'); inOL = true; }
+            out.push(`<li>${olMatch[1]}</li>`);
+            continue;
+        }
+        // Not a list line
+        if (line.trim() === '') {
+            flush();
+            out.push('');
+        } else {
+            flush();
+            out.push(`<p>${line}</p>`);
+        }
+    }
+    flush();
+    let html = out.join('\n');
+
+    // Restore fenced code blocks
+    html = html.replace(/\[\[CODE_BLOCK_(\d+)\]\]/g, (_, idx) => {
+        const code = String(codeBlocks[Number(idx)] || '')
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        return `<pre><code>${code}<\/code><\/pre>`;
+    });
+    return html;
+}
+
 // Initialize extension
 document.addEventListener('DOMContentLoaded', async () => {
     // Check for API key first
@@ -183,9 +256,10 @@ async function generateCoursePlan() {
     const prompt = `Generate a detailed step-by-step learning roadmap for ${proficiency} level in Generative AI. Include what to study, practice exercises, and estimated timeline.`;
 
     const response = await callGeminiAPI(prompt);
+    const html = renderMarkdown(response);
     contentArea.innerHTML = `
         <div class="card">
-            <div class="course-content">${response.replace(/\n/g, '<br>')}</div>
+            <div class="course-content">${html}</div>
         </div>
     `;
 }
