@@ -83,6 +83,16 @@ function normalizeQuestion(raw) {
     return { question, options: optionsObj, correct };
 }
 
+// Fisher–Yates shuffle (top-level)
+function shuffleArray(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+}
+
 // Reusable loading renderer
 function renderLoading(message = 'Loading...') {
     const contentArea = document.getElementById('content');
@@ -296,7 +306,12 @@ async function generateCoursePlan() {
     renderLoading('Generating course plan...');
 
     const proficiency = document.getElementById('proficiency').value;
-    const prompt = `Generate a detailed step-by-step learning roadmap for ${proficiency} level in Generative AI. Include what to study, practice exercises, and estimated timeline.`;
+    const prompt = `Generate a detailed step-by-step learning roadmap for ${proficiency} level in Generative AI.
+Include what to study, practice exercises, and an estimated timeline.
+MANDATORY: Cover the following areas with practical examples and projects at the chosen level:
+- AI Agents (agent architectures, tools, planning/execution loops)
+- Retrieval-Augmented Generation (RAG) (indexing, chunking, retrieval, reranking, grounding)
+- Large Language Models (LLMs) (prompting, fine-tuning, evaluation, safety)`;
 
     const response = await callGeminiAPI(prompt);
     const html = renderMarkdown(response);
@@ -315,7 +330,8 @@ async function showBuzzwords() {
     const contentArea = document.getElementById('content');
     renderLoading('Loading buzzwords...');
 
-    const prompt = 'Generate 10 AI buzzwords with their simple definitions in JSON format.';
+    const randomnessToken = Math.random().toString(36).slice(2);
+    const prompt = `Generate 10 AI buzzwords with simple definitions in JSON format. Ensure the 10 buzzwords are balanced across these areas: AI Agents (e.g., Agentic Workflow, Tool Use, ReAct, AutoGPT), RAG (e.g., Vector Store, Embeddings, Reranker, Grounding), and LLM (e.g., Prompt Engineering, Fine-tuning, Context Window). Use keys buzzword and definition. Randomness token: ${randomnessToken}`;
     const response = await callGeminiAPI(prompt);
     let parsedBuzzwords;
     try {
@@ -395,12 +411,14 @@ async function showBuzzwords() {
     }
 
     // Normalize buzzword objects to always have buzzword and definition keys and limit to 10
-    buzzwords = parsedBuzzwords.map(item => {
+    const normalized = parsedBuzzwords.map(item => {
         if (item.term && item.definition) {
             return { buzzword: item.term, definition: item.definition };
         }
         return item;
-    }).slice(0, 10);
+    });
+    // Shuffle for randomness, then take first 10
+    buzzwords = shuffleArray(normalized).slice(0, 10);
     currentBuzzwordIndex = 0;
     showCurrentBuzzword();
 }
@@ -458,11 +476,14 @@ async function startQuiz() {
     renderLoading('Loading quiz...');
 
     const proficiency = document.getElementById('proficiency').value;
+    const randomnessToken = Math.random().toString(36).slice(2);
     const prompt = `Generate 10 multiple-choice questions about Generative AI for ${proficiency} level.
+Include questions spanning AI Agents, RAG, and LLM topics (at least 3 from each across the set).
 Return a JSON array where each item has:
 - question: string
 - options: exactly four options labeled A, B, C, and D (letters only)
-- correct: a single letter among A, B, C, D (only one correct option)`;
+- correct: a single letter among A, B, C, D (only one correct option)
+Randomness token: ${randomnessToken}`;
 
     const response = await callGeminiAPI(prompt);
 
@@ -517,6 +538,23 @@ Return a JSON array where each item has:
     }
     // Final validation: keep only well-formed questions with A-D and one correct
     parsedQuestions = (parsedQuestions || []).filter(q => q && q.question && q.options && ['A','B','C','D'].every(k => typeof q.options[k] === 'string' && q.options[k].trim()) && /^[A-D]$/.test(q.correct));
+
+    // Shuffle questions for randomness
+    parsedQuestions = shuffleArray(parsedQuestions);
+
+    // Shuffle options within each question while preserving A-D keys and correct mapping
+    parsedQuestions = parsedQuestions.map(q => {
+        const labels = ['A','B','C','D'];
+        const originalOptions = q.options;
+        const originalCorrectText = originalOptions[q.correct];
+        const values = labels.map(k => originalOptions[k]);
+        const shuffledValues = shuffleArray(values);
+        const newOptions = {};
+        labels.forEach((L, i) => { newOptions[L] = shuffledValues[i]; });
+        const newCorrectIndex = shuffledValues.findIndex(v => v === originalCorrectText);
+        const newCorrect = labels[newCorrectIndex] || 'A';
+        return { ...q, options: newOptions, correct: newCorrect };
+    });
     if (!parsedQuestions || parsedQuestions.length === 0) {
         contentArea.innerHTML = `
             <div class="card">
