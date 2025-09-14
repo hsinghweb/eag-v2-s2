@@ -59,3 +59,4 @@ A Chrome Extension to help beginners learn about Generative AI through interacti
 - The extension uses Chrome Storage to securely store your API key
 - Quiz progress is saved locally
 - API calls are rate-limited based on Gemini's free tier limits
+- Convert any generated course plan into an actionable TODO list (one active list stored, progress tracked with checkboxes)
