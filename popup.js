@@ -204,37 +204,104 @@ async function showBuzzwords() {
     try {
         parsedBuzzwords = JSON.parse(response);
     } catch (error) {
-        // Try to extract buzzwords from plain text
-        parsedBuzzwords = response.split('\n').map(line => {
-            const parts = line.split(':');
-            if (parts.length === 2) {
-                return { buzzword: parts[0].trim(), definition: parts[1].trim() };
+        // Robust fallback: group lines that look like key-labeled pairs
+        const lines = response.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+        const items = [];
+        let current = { buzzword: '', definition: '' };
+
+        // Match formats like:
+        // buzzword: Generative AI
+        // "buzzword": "Generative AI",
+        // definition - text
+        const keyPairRegex = /^(?:"\s*)?(buzzword|term|definition|meaning)(?:\s*")?\s*[:\-]\s*(?:"\s*)?(.+?)(?:\s*")?[,]?$/i;
+
+        for (const raw of lines) {
+            // Remove trailing commas for safety
+            const line = raw.replace(/,+\s*$/, '').trim();
+            const m = line.match(keyPairRegex);
+            if (m) {
+                const key = m[1].toLowerCase();
+                let val = m[2].trim();
+                // Strip surrounding quotes if any
+                val = val.replace(/^"|"$/g, '');
+                if (key === 'buzzword' || key === 'term') {
+                    // If we already had a pair, push it before starting a new buzzword
+                    if (current.buzzword && current.definition) {
+                        items.push({ ...current });
+                        current = { buzzword: '', definition: '' };
+                    }
+                    current.buzzword = val;
+                } else if (key === 'definition' || key === 'meaning') {
+                    current.definition = val;
+                    // If we have both, push and reset
+                    if (current.buzzword) {
+                        items.push({ ...current });
+                        current = { buzzword: '', definition: '' };
+                    }
+                }
+                continue;
             }
-            return null;
-        }).filter(Boolean);
+
+            // Fallback: single-line "term: definition" (without explicit key names)
+            const parts = line.split(':');
+            if (parts.length >= 2) {
+                let bw = parts.shift()?.trim() || '';
+                let def = parts.join(':').trim();
+                // Strip quotes
+                bw = bw.replace(/^"|"$/g, '');
+                def = def.replace(/^"|"$/g, '');
+
+                // Ignore if the left side is literally buzzword/definition labels (handled above)
+                if (bw && def && !/^buzzword$|^definition$|^term$|^meaning$/i.test(bw)) {
+                    // If an in-progress pair exists, push it first
+                    if (current.buzzword && current.definition) {
+                        items.push({ ...current });
+                        current = { buzzword: '', definition: '' };
+                    }
+                    items.push({ buzzword: bw, definition: def });
+                    continue;
+                }
+            }
+        }
+
+        // Edge: if a complete pair is left over
+        if (current.buzzword && current.definition) {
+            items.push({ ...current });
+        }
+
+        // Only keep complete pairs
+        parsedBuzzwords = items.filter(it => it.buzzword && it.definition);
     }
     if (!parsedBuzzwords || parsedBuzzwords.length === 0) {
         contentArea.innerHTML = '<div class="card">Error loading buzzwords</div>';
         return;
     }
-    // Normalize buzzword objects to always have buzzword and definition keys
+
+    // Normalize buzzword objects to always have buzzword and definition keys and limit to 10
     buzzwords = parsedBuzzwords.map(item => {
         if (item.term && item.definition) {
             return { buzzword: item.term, definition: item.definition };
         }
         return item;
-    });
+    }).slice(0, 10);
     currentBuzzwordIndex = 0;
     showCurrentBuzzword();
 }
 
 function showCurrentBuzzword() {
     const contentArea = document.getElementById('content');
-    const buzzword = buzzwords[currentBuzzwordIndex];
+    const bw = buzzwords[currentBuzzwordIndex];
+
+    // Simple HTML escape to prevent HTML injection
+    const esc = (str) => String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+
     contentArea.innerHTML = `
-        <div class="card">
-            <h3 class="buzzword-title">${buzzword.buzzword}</h3>
-            <p class="buzzword-definition">${buzzword.definition}</p>
+        <div class="card buzzword-card">
+            <div><strong>${esc(bw.buzzword)}</strong></div>
+            <div>"${esc(bw.definition)}"</div>
             <div class="nav-buttons">
                 <button id="prevBuzzword" class="nav-btn" ${currentBuzzwordIndex === 0 ? 'disabled' : ''}>Previous</button>
                 <span>${currentBuzzwordIndex + 1}/${buzzwords.length}</span>
@@ -242,8 +309,11 @@ function showCurrentBuzzword() {
             </div>
         </div>
     `;
-    document.getElementById('prevBuzzword').onclick = previousBuzzword;
-    document.getElementById('nextBuzzword').onclick = nextBuzzword;
+
+    const prev = document.getElementById('prevBuzzword');
+    const next = document.getElementById('nextBuzzword');
+    if (prev) prev.addEventListener('click', previousBuzzword);
+    if (next) next.addEventListener('click', nextBuzzword);
 }
 
 function previousBuzzword() {
