@@ -318,10 +318,79 @@ MANDATORY: Cover the following areas with practical examples and projects at the
     contentArea.innerHTML = `
         <div class="card">
             <div class="course-content">${html}</div>
+            <button id="convertToTodo" class="option-btn">Convert to TODO List</button>
         </div>
     `;
+    // Attach handler for Convert to TODO List
+    const convertBtn = document.getElementById('convertToTodo');
+    if (convertBtn) convertBtn.addEventListener('click', () => convertCoursePlanToTodo(response, proficiency));
 }
 
+// Convert Course Plan to TODO List using Gemini API
+async function convertCoursePlanToTodo(coursePlanText, proficiency) {
+    renderLoading('Converting Course Plan to TODO List...');
+    const prompt = `Convert the following Generative AI course plan into a concise TODO list for a learner. Each TODO should be a clear actionable step. Return the TODO list as a JSON array of objects, each with 'task' (string) and 'completed' (boolean, default false).\n\nCourse Plan:\n${coursePlanText}`;
+    const response = await callGeminiAPI(prompt);
+    let todoList;
+    try {
+        todoList = JSON.parse(response);
+        if (!Array.isArray(todoList)) throw new Error('Not an array');
+    } catch (e) {
+        // Fallback: try to extract JSON from markdown/code block
+        const match = response.match(/```[a-zA-Z]*\s*([\s\S]*?)```/);
+        if (match && match[1]) {
+            try { todoList = JSON.parse(match[1]); } catch {}
+        }
+        if (!todoList || !Array.isArray(todoList)) {
+            renderLoading('Failed to parse TODO list. Try again.');
+            return;
+        }
+    }
+    // Store TODO list in Chrome storage, replacing any existing list
+    await storage.set({ activeTodoList: { proficiency, list: todoList } });
+    showTodoList();
+}
+
+// Show TODO List UI
+async function showTodoList() {
+    renderLoading('Loading TODO List...');
+    const contentArea = document.getElementById('content');
+    const result = await storage.get(['activeTodoList']);
+    const todoObj = result.activeTodoList;
+    if (!todoObj || !Array.isArray(todoObj.list) || todoObj.list.length === 0) {
+        contentArea.innerHTML = '<div class="card">No TODO list found. Generate a Course Plan and convert it to a TODO list.</div>';
+        return;
+    }
+    contentArea.innerHTML = `
+        <div class="card">
+            <h2>TODO List (${todoObj.proficiency})</h2>
+            <ul class="todo-list">
+                ${todoObj.list.map((item, idx) => `
+                    <li>
+                        <label>
+                            <input type="checkbox" data-idx="${idx}" ${item.completed ? 'checked' : ''}>
+                            <span class="${item.completed ? 'completed' : ''}">${item.task}</span>
+                        </label>
+                    </li>
+                `).join('')}
+            </ul>
+        </div>
+    `;
+    // Add checkbox listeners
+    document.querySelectorAll('.todo-list input[type="checkbox"]').forEach(cb => {
+        cb.addEventListener('change', async (e) => {
+            const idx = Number(e.target.dataset.idx);
+            todoObj.list[idx].completed = e.target.checked;
+            await storage.set({ activeTodoList: todoObj });
+            showTodoList();
+        });
+    });
+}
+
+// Wire up TODO List button on Home page
+if (document.getElementById('todoList')) {
+    document.getElementById('todoList').addEventListener('click', showTodoList);
+}
 // Buzzwords Feature
 let currentBuzzwordIndex = 0;
 let buzzwords = [];
