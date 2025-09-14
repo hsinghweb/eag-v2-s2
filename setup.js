@@ -13,16 +13,6 @@ function showApiKeySetup() {
                 <h2>Welcome to GenAI Learning Assistant</h2>
                 <p>Please enter your Gemini API key to get started:</p>
                 <input type="password" id="apiKeyInput" placeholder="Enter your Gemini API key" class="api-key-input">
-                <p class="hint">Get your API key from <a href="https://makersuite.google.com/app/apikey" target="_blank">Google AI Studio</a></p>
-                <div class="setup-instructions">
-                    <p>Setup Instructions:</p>
-                    <ol>
-                        <li>Visit <a href="https://makersuite.google.com/app/apikey" target="_blank">Google AI Studio</a></li>
-                        <li>Create or select a project</li>
-                        <li>Create an API key</li>
-                        <li>Copy and paste the key here</li>
-                    </ol>
-                </div>
                 <div id="apiKeyError" class="api-key-error"></div>
                 <button id="saveApiKey" class="option-btn">Save API Key</button>
             </div>
@@ -31,6 +21,7 @@ function showApiKeySetup() {
         document.getElementById('saveApiKey').addEventListener('click', async () => {
             const apiKey = document.getElementById('apiKeyInput').value.trim();
             const errorDiv = document.getElementById('apiKeyError');
+            errorDiv.textContent = '';
             
             if (!apiKey) {
                 errorDiv.textContent = 'Please enter an API key';
@@ -65,7 +56,17 @@ function showApiKeySetup() {
                 }
 
                 await chrome.storage.local.set({ geminiApiKey: apiKey });
-                resolve(apiKey);
+                // Show success message and then proceed
+                const contentEl = document.getElementById('content');
+                if (contentEl) {
+                    contentEl.innerHTML = `
+                        <div class="card">
+                            <h3>✅ API key saved successfully</h3>
+                            <p>You can now use the extension features.</p>
+                        </div>
+                    `;
+                }
+                setTimeout(() => resolve(apiKey), 1000);
             } catch (error) {
                 errorDiv.innerHTML = `
                     API Key Error:<br>
